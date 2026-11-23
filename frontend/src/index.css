@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+:root {
+  --bg-canvas: #F4F7FB;
+  --brand-navy: #1E3A8A;
+  --brand-blue: #2563EB;
+  --brand-sky: #0284C7;
+  --brand-amber: #D97706;
+}
+
+@layer base {
+  body {
+    font-family: 'Be Vietnam Pro', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-canvas);
+  }
+
+  button,
+  [role="button"],
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.font-mono-data {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
