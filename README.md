@@ -11,3 +11,4 @@
 | 1 | **Nhóm trưởng (Scrum Master)** | Nguyễn Đan Giang | `25S1020025` | https://github.com/nguyengiang-ndg | Khung dự án, CI/CD, Auth (OTP Quên MK), Hồ sơ CSV/PDF & Màn hình Quản lý HĐ + Chiếu QR/PIN (`ManagerActivitiesPage`) | `feature/core-auth-users`, `feature/manager-checkin-console` |
 | 3 | Thành viên | Nguyễn Ngọc Ánh | `25S1020011` | https://github.com/ngocanh131027-stack | Core Backend Đăng ký/Hủy 24h/Waitlist FIFO/Điểm danh PIN-QR/Minh chứng 48h, Thời khóa biểu SV & Giao diện Nộp/Duyệt Minh chứng | `feature/registrations-checkin-backend`, `feature/student-schedule-proofs` |
 <!-- Các thành viên Huyền, Ánh, Linh sẽ tạo nhánh và mở Pull Request thêm dòng của mình vào ngay bên dưới để thực hành Sprint 0 & xử lý Conflict Chương 4 -->
+| 4 | Thành viên | Nguyễn Khánh Linh | `25S1020060` | https://github.com/khanhlinhtl07-dotcom | Admin Dashboard, Cấu hình hệ thống, Duyệt TK Quản lý, Duyệt/Hủy Hoạt động, Báo cáo & Thông báo | `feature/admin-reports` |
