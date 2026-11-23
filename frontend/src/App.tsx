@@ -1,37 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Navbar, PageKey } from './components/Navbar';
+import { HomePage } from './pages/guest/HomePage';
 import { AuthMode, AuthPage } from './pages/guest/AuthPage';
 import { StudentProfileModal } from './pages/student/StudentProfileModal';
-
-const StageOneWelcome: React.FC<{ onNavigate: (p: PageKey, m?: AuthMode) => void }> = ({
-  onNavigate
-}) => (
-  <div className="bg-white rounded-3xl border border-blue-100 p-8 shadow-xs space-y-4 text-center max-w-2xl mx-auto">
-    <h1 className="text-2xl font-extrabold text-[#1E3A8A]">
-      UniVolunteer — Khung Hệ thống &amp; Module Xác thực (Sprint 1 - TV1)
-    </h1>
-    <p className="text-sm text-slate-600">
-      Module xác thực (Đăng ký Sinh viên/Quản lý, Quên mật khẩu OTP và Hồ sơ điểm) đã sẵn sàng.
-      Các phân hệ Trang chủ, Thời khóa biểu và Quản trị sẽ được ghép tiếp qua PR của thành viên 2,
-      3 và 4.
-    </p>
-    <div className="flex flex-wrap justify-center gap-3 pt-2">
-      <button
-        onClick={() => onNavigate('auth', 'login')}
-        className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700"
-      >
-        Đăng nhập ngay
-      </button>
-      <button
-        onClick={() => onNavigate('auth', 'register-student')}
-        className="px-5 py-2.5 rounded-xl border border-blue-300 text-[#1E3A8A] text-sm font-bold hover:bg-blue-50"
-      >
-        Đăng ký Sinh viên
-      </button>
-    </div>
-  </div>
-);
+import { ManagerCreateActivityPage } from './pages/manager/ManagerCreateActivityPage';
 
 const AppShell: React.FC = () => {
   const { user, loading, pendingCheckIn } = useAuth();
@@ -57,6 +30,8 @@ const AppShell: React.FC = () => {
       if (currentPage !== 'home' && currentPage !== 'auth') {
         setCurrentPage('home');
       }
+    } else if (user.role === 'MANAGER' && (currentPage === 'home' || currentPage === 'auth')) {
+      setCurrentPage('manager-create');
     } else if (user.role === 'STUDENT' && currentPage === 'auth') {
       setCurrentPage('home');
     }
@@ -71,10 +46,21 @@ const AppShell: React.FC = () => {
         </div>
       );
     }
-    if (currentPage === 'auth') {
-      return <AuthPage onNavigate={navigateTo} initialMode={authInitialMode} />;
+
+    switch (currentPage) {
+      case 'home':
+        return <HomePage onNavigate={navigateTo} />;
+      case 'auth':
+        return <AuthPage onNavigate={navigateTo} initialMode={authInitialMode} />;
+      case 'manager-create':
+        return user?.role === 'MANAGER' ? (
+          <ManagerCreateActivityPage onNavigate={navigateTo} />
+        ) : (
+          <HomePage onNavigate={navigateTo} />
+        );
+      default:
+        return <HomePage onNavigate={navigateTo} />;
     }
-    return <StageOneWelcome onNavigate={navigateTo} />;
   };
 
   return (
