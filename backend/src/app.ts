@@ -5,6 +5,7 @@ import cors from 'cors';
 import type { SqliteDatabase } from './db/database';
 import { createAuthenticateMiddleware, errorHandler } from './middlewares/auth.middleware';
 import { createAuthUserRouter } from './routes/auth.routes';
+import { createActivityRouter } from './routes/activity.routes';
 import { createUploadRouter } from './routes/upload.routes';
 
 export function createApp(db: SqliteDatabase) {
@@ -26,6 +27,7 @@ export function createApp(db: SqliteDatabase) {
 
   app.use('/api/uploads', createUploadRouter(authenticate));
   app.use('/api', createAuthUserRouter(db, authenticate));
+  app.use('/api', createActivityRouter(db, authenticate));
 
   const frontendDistDir = path.resolve(__dirname, '../../frontend/dist');
   if (process.env.VERCEL !== '1' && fs.existsSync(frontendDistDir)) {
