@@ -592,4 +592,139 @@ describe('RegistrationProofService - Thành viên 3', () => {
     ).toThrow(/chưa mở điểm danh/);
   });
 
+  it('Attendance ROTATING 60s (TOTP): chấp nhận mã chu kỳ hiện tại và chu kỳ liền trước (grace window), từ chối mã quá 2 chu kỳ', () => {
+    // 1. Arrange
+    const startMs = new Date('2026-12-15T08:00:00.000Z').getTime();
+    const endMs = new Date('2026-12-15T12:00:00.000Z').getTime();
+    const tReg = new Date(startMs - 48 * 3600 * 1000);
+
+    const act = activityService.createActivity(managerId, {
+      title: 'Hội thảo Tình nguyện Hội trường lớn',
+      description: 'Test TOTP 60s',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Hội trường lớn',
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      maxParticipants: 20,
+      trainingPoints: 5
+    });
+    db.prepare("UPDATE activities SET status = 'APPROVED' WHERE id = ?").run(act.id);
+
+    const sv2 = authService.registerStudent({
+      email: 'totp2@gmail.com',
+      studentCode: '21T1020952',
+      fullName: 'SV TOTP 2',
+      dob: '2004-07-07',
+      phone: '0977000952',
+      password: 'password123'
+    }).user;
+    const sv3 = authService.registerStudent({
+      email: 'totp3@gmail.com',
+      studentCode: '21T1020953',
+      fullName: 'SV TOTP 3',
+      dob: '2004-08-08',
+      phone: '0977000953',
+      password: 'password123'
+    }).user;
+
+    for (const uid of [studentId, sv2.id, sv3.id]) {
+      const r = rpService.registerActivity(uid, act.id, 'OK', tReg);
+      rpService.reviewRegistration(managerId, r.registration.id, 'APPROVE');
+    }
+
+    // 2. Act & 3. Assert
+    const t0 = new Date(startMs);
+    const opened = rpService.openAttendanceSession(
+      managerId,
+      act.id,
+      { mode: 'ROTATING', durationMinutes: 30, rotateSeconds: 60 },
+      t0
+    );
+    const pinStep0 = opened.session.current_pin;
+    expect(pinStep0).toMatch(/^\d{6}$/);
+
+    // SV1 dùng mã tại t0
+    const res1 = rpService.studentCheckIn(studentId, act.id, pinStep0, 'PIN', t0);
+    expect(res1.attendance.method).toBe('PIN');
+
+    // SV2 dùng mã step0 tại t0 + 65s (nằm trong step 1, grace window chấp nhận step - 1)
+    const t65 = new Date(t0.getTime() + 65 * 1000);
+    const res2 = rpService.studentCheckIn(sv2.id, act.id, pinStep0, 'QR', t65);
+    expect(res2.attendance.method).toBe('QR');
+
+    // SV3 dùng mã step0 tại t0 + 130s (step 2) -> bị từ chối, còn mã của step 2 thì hợp lệ
+    const t130 = new Date(t0.getTime() + 130 * 1000);
+    expect(() =>
+      rpService.studentCheckIn(sv3.id, act.id, pinStep0, 'PIN', t130)
+    ).toThrow(/không chính xác/);
+
+    const stateAt130 = rpService.getManagerAttendanceState(managerId, act.id, t130);
+    const pinStep2 = stateAt130.session!.current_pin;
+    const res3 = rpService.studentCheckIn(sv3.id, act.id, pinStep2, 'PIN', t130);
+    expect(res3.attendance.method).toBe('PIN');
+  });
+
+  it('Proof Lock/Unlock: chặn nộp ảnh minh chứng 48h nếu chưa điểm danh (403), mở khóa ngay khi điểm danh PIN/QR hoặc Quản lý điểm danh thủ công', () => {
+    // 1. Arrange
+    const startMs = new Date('2026-12-20T08:00:00.000Z').getTime();
+    const endMs = new Date('2026-12-20T12:00:00.000Z').getTime();
+    const tReg = new Date(startMs - 48 * 3600 * 1000);
+
+    const act = activityService.createActivity(managerId, {
+      title: 'Chiến dịch Khóa/Mở Minh chứng',
+      description: 'Test lock/unlock proof submission',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Cơ sở 1',
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      maxParticipants: 10,
+      trainingPoints: 6
+    });
+    db.prepare("UPDATE activities SET status = 'APPROVED' WHERE id = ?").run(act.id);
+
+    const reg1 = rpService.registerActivity(studentId, act.id, 'SV1', tReg);
+    rpService.reviewRegistration(managerId, reg1.registration.id, 'APPROVE');
+
+    const tAfterEnd = new Date(endMs + 2 * 3600 * 1000);
+
+    // 2. Act & 3. Assert: chưa điểm danh -> can_submit_proof = false và submitProof ném 403
+    const endedBefore = rpService.getEndedActivitiesForStudent(studentId, tAfterEnd) as Array<
+      Record<string, unknown>
+    >;
+    expect(endedBefore[0].is_checked_in).toBe(false);
+    expect(endedBefore[0].can_submit_proof).toBe(false);
+
+    try {
+      rpService.submitProof(
+        studentId,
+        reg1.registration.id,
+        '/uploads/proof-sample-1.svg',
+        'Chưa điểm danh đã nộp',
+        tAfterEnd
+      );
+      expect.unreachable('Phải chặn nộp minh chứng 403 khi chưa điểm danh');
+    } catch (err: any) {
+      expect(err.statusCode).toBe(403);
+    }
+
+    // Quản lý điểm danh thủ công -> mở khóa ngay và nộp minh chứng thành công
+    const manualRes = rpService.manualCheckIn(managerId, reg1.registration.id, tAfterEnd);
+    expect(manualRes.attendance.method).toBe('MANUAL');
+
+    const endedAfter = rpService.getEndedActivitiesForStudent(studentId, tAfterEnd) as Array<
+      Record<string, unknown>
+    >;
+    expect(endedAfter[0].is_checked_in).toBe(true);
+    expect(endedAfter[0].can_submit_proof).toBe(true);
+
+    const proof = rpService.submitProof(
+      studentId,
+      reg1.registration.id,
+      '/uploads/proof-sample-1.svg',
+      'Đã mở khóa và nộp thành công',
+      tAfterEnd
+    ) as { status: string };
+    expect(proof.status).toBe('SUBMITTED');
+  });
+
 });

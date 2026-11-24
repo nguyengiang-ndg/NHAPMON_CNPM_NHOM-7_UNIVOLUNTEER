@@ -3,9 +3,12 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Navbar, PageKey } from './components/Navbar';
 import { HomePage } from './pages/guest/HomePage';
 import { AuthMode, AuthPage } from './pages/guest/AuthPage';
+import { StudentSchedulePage } from './pages/student/StudentSchedulePage';
+import { StudentEndedProofsPage } from './pages/student/StudentEndedProofsPage';
 import { StudentProfileModal } from './pages/student/StudentProfileModal';
 import { ManagerActivitiesPage } from './pages/manager/ManagerActivitiesPage';
 import { ManagerCreateActivityPage } from './pages/manager/ManagerCreateActivityPage';
+import { ManagerEndedProofsPage } from './pages/manager/ManagerEndedProofsPage';
 
 const AppShell: React.FC = () => {
   const { user, loading, pendingCheckIn } = useAuth();
@@ -33,6 +36,8 @@ const AppShell: React.FC = () => {
       }
     } else if (user.role === 'MANAGER' && (currentPage === 'home' || currentPage === 'auth')) {
       setCurrentPage('manager-activities');
+    } else if (user.role === 'STUDENT' && pendingCheckIn) {
+      setCurrentPage('student-schedule');
     } else if (user.role === 'STUDENT' && currentPage === 'auth') {
       setCurrentPage('home');
     }
@@ -53,6 +58,18 @@ const AppShell: React.FC = () => {
         return <HomePage onNavigate={navigateTo} />;
       case 'auth':
         return <AuthPage onNavigate={navigateTo} initialMode={authInitialMode} />;
+      case 'student-schedule':
+        return user?.role === 'STUDENT' ? (
+          <StudentSchedulePage />
+        ) : (
+          <HomePage onNavigate={navigateTo} />
+        );
+      case 'student-proofs':
+        return user?.role === 'STUDENT' ? (
+          <StudentEndedProofsPage />
+        ) : (
+          <HomePage onNavigate={navigateTo} />
+        );
       case 'manager-activities':
         return user?.role === 'MANAGER' ? (
           <ManagerActivitiesPage />
@@ -62,6 +79,12 @@ const AppShell: React.FC = () => {
       case 'manager-create':
         return user?.role === 'MANAGER' ? (
           <ManagerCreateActivityPage onNavigate={navigateTo} />
+        ) : (
+          <HomePage onNavigate={navigateTo} />
+        );
+      case 'manager-proofs':
+        return user?.role === 'MANAGER' ? (
+          <ManagerEndedProofsPage />
         ) : (
           <HomePage onNavigate={navigateTo} />
         );
