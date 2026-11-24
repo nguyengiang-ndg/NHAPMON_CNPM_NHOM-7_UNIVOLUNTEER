@@ -425,4 +425,171 @@ describe('RegistrationProofService - Thành viên 3', () => {
     expect(sv3List[0].queue_position).toBe(1);
   });
 
+  it('leaveWaitlist(): khi người đang ở trạng thái NOTIFIED rút khỏi hàng chờ, hệ thống tự động thông báo cho người đứng kế tiếp', () => {
+    // 1. Arrange
+    const startMs = new Date('2026-12-10T08:00:00.000Z').getTime();
+    const endMs = new Date('2026-12-10T12:00:00.000Z').getTime();
+    const t0 = new Date(startMs - 72 * 3600 * 1000);
+
+    const act = activityService.createActivity(managerId, {
+      title: 'Hoạt động Chuyển Lượt Hàng Chờ',
+      description: 'Test leaveWaitlist khi NOTIFIED',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Sảnh D',
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      maxParticipants: 1,
+      trainingPoints: 5
+    });
+    db.prepare("UPDATE activities SET status = 'APPROVED' WHERE id = ?").run(act.id);
+
+    const reg1 = rpService.registerActivity(studentId, act.id, 'Slot 1', t0);
+    rpService.reviewRegistration(managerId, reg1.registration.id, 'APPROVE');
+
+    const sv2 = authService.registerStudent({
+      email: 'pass1@gmail.com',
+      studentCode: '21T1020906',
+      fullName: 'Waiter Notified Rời',
+      dob: '2004-09-01',
+      phone: '0977000906',
+      password: 'password123'
+    }).user;
+    const sv3 = authService.registerStudent({
+      email: 'pass2@gmail.com',
+      studentCode: '21T1020907',
+      fullName: 'Waiter Kế Tiếp',
+      dob: '2004-09-02',
+      phone: '0977000907',
+      password: 'password123'
+    }).user;
+
+    rpService.joinWaitlist(sv2.id, act.id, 'Chờ 1', new Date(t0.getTime() + 1000));
+    rpService.joinWaitlist(sv3.id, act.id, 'Chờ 2', new Date(t0.getTime() + 2000));
+
+    const tCancel = new Date(startMs - 48 * 3600 * 1000);
+    rpService.studentCancelRegistration(studentId, reg1.registration.id, 'Bận lịch thi', tCancel);
+    rpService.reviewCancelRequest(managerId, reg1.registration.id, 'APPROVE', '', tCancel);
+
+    // 2. Act: SV2 đang ở trạng thái NOTIFIED nhưng rời hàng chờ
+    rpService.leaveWaitlist(sv2.id, act.id, new Date(tCancel.getTime() + 1000));
+
+    // 3. Assert: SV3 tự động chuyển từ WAITING -> NOTIFIED và nhận Notification
+    const sv3Waitlists = rpService.getStudentWaitlists(sv3.id) as Array<Record<string, unknown>>;
+    expect(sv3Waitlists.length).toBe(1);
+    expect(sv3Waitlists[0].waitlist_status).toBe('NOTIFIED');
+
+    const sv3Notif = db
+      .prepare('SELECT title, type FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1')
+      .get(sv3.id) as { title: string; type: string } | undefined;
+    expect(sv3Notif?.title).toContain('chỗ trống');
+    expect(sv3Notif?.type).toBe('SUCCESS');
+  });
+
+  it('Attendance STATIC PIN: sai mã 400, đổi mã PIN làm mã cũ vô hiệu, chặn chưa duyệt 403, trùng lặp 409 và hết hạn/đóng phiên 400', () => {
+    // 1. Arrange
+    const startMs = new Date('2026-12-12T08:00:00.000Z').getTime();
+    const endMs = new Date('2026-12-12T12:00:00.000Z').getTime();
+    const tReg = new Date(startMs - 48 * 3600 * 1000);
+
+    const act = activityService.createActivity(managerId, {
+      title: 'Ngày hội Kết nối Tình nguyện',
+      description: 'Test Static PIN Attendance',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Hội trường 1',
+      startTime: new Date(startMs).toISOString(),
+      endTime: new Date(endMs).toISOString(),
+      maxParticipants: 10,
+      trainingPoints: 5
+    });
+    db.prepare("UPDATE activities SET status = 'APPROVED' WHERE id = ?").run(act.id);
+
+    const regApproved = rpService.registerActivity(studentId, act.id, 'Đã duyệt', tReg);
+    rpService.reviewRegistration(managerId, regApproved.registration.id, 'APPROVE');
+
+    const svPending = authService.registerStudent({
+      email: 'pending.att@gmail.com',
+      studentCode: '21T1020950',
+      fullName: 'SV Chưa Duyệt',
+      dob: '2004-05-05',
+      phone: '0977000950',
+      password: 'password123'
+    }).user;
+    rpService.registerActivity(svPending.id, act.id, 'Chờ duyệt', tReg);
+
+    // 2. Act & 3. Assert
+    const tOpen = new Date(startMs + 5 * 60 * 1000);
+    const opened = rpService.openAttendanceSession(
+      managerId,
+      act.id,
+      { mode: 'STATIC', durationMinutes: 30 },
+      tOpen
+    );
+    const firstPin = opened.session.current_pin;
+    expect(firstPin).toMatch(/^\d{6}$/);
+
+    // Sai PIN -> 400
+    const wrongPin = firstPin === '000000' ? '999999' : '000000';
+    expect(() =>
+      rpService.studentCheckIn(studentId, act.id, wrongPin, 'PIN', new Date(tOpen.getTime() + 1000))
+    ).toThrow(/không chính xác/);
+
+    // SV chưa được duyệt -> 403
+    try {
+      rpService.studentCheckIn(svPending.id, act.id, firstPin, 'PIN', tOpen);
+      expect.unreachable('Phải chặn SV chưa duyệt 403');
+    } catch (err: any) {
+      expect(err.statusCode).toBe(403);
+    }
+
+    // Quản lý đổi mã PIN -> mã cũ vô hiệu
+    const rotated = rpService.rotateAttendancePin(managerId, act.id, new Date(tOpen.getTime() + 2000));
+    const secondPin = rotated.session.current_pin;
+    expect(secondPin).not.toBe(firstPin);
+    expect(() =>
+      rpService.studentCheckIn(studentId, act.id, firstPin, 'PIN', new Date(tOpen.getTime() + 3000))
+    ).toThrow(/không chính xác/);
+
+    // Điểm danh bằng mã mới -> 201 + QR
+    const checkInRes = rpService.studentCheckIn(
+      studentId,
+      act.id,
+      secondPin,
+      'QR',
+      new Date(tOpen.getTime() + 4000)
+    );
+    expect(checkInRes.attendance.method).toBe('QR');
+
+    // Điểm danh trùng -> 409
+    try {
+      rpService.studentCheckIn(studentId, act.id, secondPin, 'PIN', new Date(tOpen.getTime() + 5000));
+      expect.unreachable('Phải chặn điểm danh trùng 409');
+    } catch (err: any) {
+      expect(err.statusCode).toBe(409);
+    }
+
+    // Kiểm tra hết hạn & đóng phiên
+    const sv2 = authService.registerStudent({
+      email: 'sv2.att@gmail.com',
+      studentCode: '21T1020951',
+      fullName: 'SV Đúng Giờ Hết Hạn',
+      dob: '2004-06-06',
+      phone: '0977000951',
+      password: 'password123'
+    }).user;
+    const reg2 = rpService.registerActivity(sv2.id, act.id, 'OK', tReg);
+    rpService.reviewRegistration(managerId, reg2.registration.id, 'APPROVE');
+
+    const afterExpiry = new Date(tOpen.getTime() + 31 * 60 * 1000);
+    expect(() =>
+      rpService.studentCheckIn(sv2.id, act.id, secondPin, 'PIN', afterExpiry)
+    ).toThrow(/hết thời gian hiệu lực/);
+
+    // Mở lại rồi đóng phiên -> báo chưa mở điểm danh
+    const reopened = rpService.openAttendanceSession(managerId, act.id, { mode: 'STATIC' }, afterExpiry);
+    rpService.closeAttendanceSession(managerId, act.id, afterExpiry);
+    expect(() =>
+      rpService.studentCheckIn(sv2.id, act.id, reopened.session.current_pin, 'PIN', afterExpiry)
+    ).toThrow(/chưa mở điểm danh/);
+  });
+
 });
