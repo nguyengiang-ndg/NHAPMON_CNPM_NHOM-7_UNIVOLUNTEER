@@ -4,6 +4,7 @@ import { Navbar, PageKey } from './components/Navbar';
 import { HomePage } from './pages/guest/HomePage';
 import { AuthMode, AuthPage } from './pages/guest/AuthPage';
 import { StudentProfileModal } from './pages/student/StudentProfileModal';
+import { ManagerActivitiesPage } from './pages/manager/ManagerActivitiesPage';
 import { ManagerCreateActivityPage } from './pages/manager/ManagerCreateActivityPage';
 
 const AppShell: React.FC = () => {
@@ -31,7 +32,7 @@ const AppShell: React.FC = () => {
         setCurrentPage('home');
       }
     } else if (user.role === 'MANAGER' && (currentPage === 'home' || currentPage === 'auth')) {
-      setCurrentPage('manager-create');
+      setCurrentPage('manager-activities');
     } else if (user.role === 'STUDENT' && currentPage === 'auth') {
       setCurrentPage('home');
     }
@@ -52,6 +53,12 @@ const AppShell: React.FC = () => {
         return <HomePage onNavigate={navigateTo} />;
       case 'auth':
         return <AuthPage onNavigate={navigateTo} initialMode={authInitialMode} />;
+      case 'manager-activities':
+        return user?.role === 'MANAGER' ? (
+          <ManagerActivitiesPage />
+        ) : (
+          <HomePage onNavigate={navigateTo} />
+        );
       case 'manager-create':
         return user?.role === 'MANAGER' ? (
           <ManagerCreateActivityPage onNavigate={navigateTo} />
