@@ -7,6 +7,7 @@ import { createAuthenticateMiddleware, errorHandler } from './middlewares/auth.m
 import { createAuthUserRouter } from './routes/auth.routes';
 import { createActivityRouter } from './routes/activity.routes';
 import { createRegistrationProofRouter } from './routes/registrationProof.routes';
+import { createAdminReportRouter } from './routes/adminReport.routes';
 import { createUploadRouter } from './routes/upload.routes';
 
 export function createApp(db: SqliteDatabase) {
@@ -30,6 +31,7 @@ export function createApp(db: SqliteDatabase) {
   app.use('/api', createAuthUserRouter(db, authenticate));
   app.use('/api', createActivityRouter(db, authenticate));
   app.use('/api', createRegistrationProofRouter(db, authenticate));
+  app.use('/api', createAdminReportRouter(db, authenticate));
 
   const frontendDistDir = path.resolve(__dirname, '../../frontend/dist');
   if (process.env.VERCEL !== '1' && fs.existsSync(frontendDistDir)) {
