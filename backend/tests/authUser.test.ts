@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createDatabase, type SqliteDatabase } from '../src/db/database';
 import { ensureAdminAccount } from '../src/db/seed';
 import { AuthUserService } from '../src/services/authUser.service';
+import { ActivityService } from '../src/services/activity.service';
+import { RegistrationProofService } from '../src/services/registrationProof.service';
+import { AdminReportService } from '../src/services/adminReport.service';
 
 describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
   let db: SqliteDatabase;
@@ -69,6 +72,116 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
     );
   });
 
+  it('getStudentDetailForManager(): hiển thị tất cả thông tin sinh viên TRỪ Email sinh viên', () => {
+    // 1. Arrange
+    const sv = authService.registerStudent({
+      email: 'secret.student@gmail.com',
+      studentCode: '21T1020111',
+      fullName: 'Lê Minh Tuấn',
+      dob: '2004-05-05',
+      phone: '0988111222',
+      password: 'password123'
+    }).user;
+
+    const adminService = new AdminReportService(db);
+    const mgr = authService.registerManager({
+      email: 'mgr@gmail.com',
+      fullName: 'Quản lý A',
+      dob: '1994-01-01',
+      phone: '0905000111',
+      address: 'Huế',
+      password: 'password123'
+    }).user;
+    adminService.reviewManagerAccount(mgr.id, 'APPROVE');
+
+    const actService = new ActivityService(db);
+    const start = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+    const end = new Date(Date.now() + 52 * 3600 * 1000).toISOString();
+    const act = actService.createActivity(mgr.id, {
+      title: 'Hỗ trợ sinh viên',
+      description: 'Mô tả chi tiết',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Sân trường',
+      startTime: start,
+      endTime: end,
+      maxParticipants: 20,
+      trainingPoints: 5
+    });
+    adminService.reviewActivityProposal(act.id, 'APPROVE');
+
+    const rpService = new RegistrationProofService(db);
+    rpService.registerActivity(sv.id, act.id, 'Em muốn tham gia ạ');
+
+    // 2. Act
+    const detailForManager = authService.getStudentDetailForManager(sv.id, mgr.id);
+
+    // 3. Assert
+    expect(detailForManager.student.full_name).toBe('Lê Minh Tuấn');
+    expect(detailForManager.student.student_code).toBe('21T1020111');
+    expect(detailForManager.student.phone).toBe('0988111222');
+    expect('email' in detailForManager.student).toBe(false);
+  });
+
+  it('getStudentDetailForManager(): cho phép Quản lý xem sinh viên đang nằm trong danh sách chờ và vẫn ẩn Email', () => {
+    // 1. Arrange
+    const sv1 = authService.registerStudent({
+      email: 'full1@gmail.com',
+      studentCode: '21T1020112',
+      fullName: 'Sinh viên Chính',
+      dob: '2004-05-05',
+      phone: '0988111223',
+      password: 'password123'
+    }).user;
+    const svWait = authService.registerStudent({
+      email: 'secret.waiter@gmail.com',
+      studentCode: '21T1020113',
+      fullName: 'Sinh viên Danh Sách Chờ',
+      dob: '2004-06-06',
+      phone: '0988111224',
+      password: 'password123'
+    }).user;
+
+    const adminService = new AdminReportService(db);
+    const mgr = authService.registerManager({
+      email: 'mgr.waitdetail@gmail.com',
+      fullName: 'Quản lý Waitlist',
+      dob: '1994-01-01',
+      phone: '0905000222',
+      address: 'Huế',
+      password: 'password123'
+    }).user;
+    adminService.reviewManagerAccount(mgr.id, 'APPROVE');
+
+    const actService = new ActivityService(db);
+    const start = new Date(Date.now() + 48 * 3600 * 1000).toISOString();
+    const end = new Date(Date.now() + 52 * 3600 * 1000).toISOString();
+    const act = actService.createActivity(mgr.id, {
+      title: 'Hoạt động 1 slot',
+      description: 'Mô tả chi tiết',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Sân trường',
+      startTime: start,
+      endTime: end,
+      maxParticipants: 1,
+      trainingPoints: 5
+    });
+    adminService.reviewActivityProposal(act.id, 'APPROVE');
+
+    const rpService = new RegistrationProofService(db);
+    const r1 = rpService.registerActivity(sv1.id, act.id, 'Slot 1');
+    rpService.reviewRegistration(mgr.id, r1.registration.id, 'APPROVE');
+    rpService.joinWaitlist(svWait.id, act.id, 'Em xin vào danh sách chờ');
+
+    // 2. Act
+    const waiterDetail = authService.getStudentDetailForManager(svWait.id, mgr.id);
+
+    // 3. Assert
+    expect(waiterDetail.student.full_name).toBe('Sinh viên Danh Sách Chờ');
+    expect(waiterDetail.student.student_code).toBe('21T1020113');
+    expect('email' in waiterDetail.student).toBe(false);
+    expect(waiterDetail.registrations.length).toBe(0);
+  });
+
   it('requestPasswordReset() & resetPasswordWithOtp(): đặt lại mật khẩu thành công bằng OTP 6 số và đăng nhập bằng mật khẩu mới', async () => {
     // 1. Arrange
     const registered = authService.registerStudent({
@@ -77,7 +190,7 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
       fullName: 'Trần Thị Quyên',
       dob: '2004-05-12',
       phone: '0911222333',
-      password: 'oldPassword123'
+      password: 'oldPassword123',
     });
 
     let capturedOtp = '';
@@ -106,6 +219,11 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
 
     const newLogin = authService.login('quyen.sv@gmail.com', 'newStrongPass456');
     expect(newLogin.user.id).toBe(registered.user.id);
+
+    const notif = db
+      .prepare('SELECT title FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 1')
+      .get(registered.user.id) as { title: string } | undefined;
+    expect(notif?.title).toBe('Đặt lại mật khẩu thành công');
   });
 
   it('requestPasswordReset(): chặn gửi lại OTP trong vòng 60 giây cooldown (HTTP 429)', async () => {
@@ -116,7 +234,7 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
       fullName: 'Phạm Văn Cooldown',
       dob: '2004-06-15',
       phone: '0911222444',
-      password: 'password123'
+      password: 'password123',
     });
     const emailSender = vi.fn(async () => ({ deliveryMode: 'SMTP' as const }));
     const t0 = new Date('2026-11-22T10:00:00.000Z');
@@ -138,7 +256,7 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
       fullName: 'Lê Văn Hết Hạn',
       dob: '2004-07-20',
       phone: '0911222555',
-      password: 'password123'
+      password: 'password123',
     });
     let capturedOtp = '';
     const emailSender = vi.fn(async (params) => {
@@ -163,7 +281,7 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
       fullName: 'Hoàng Minh Khóa',
       dob: '2004-08-25',
       phone: '0911222666',
-      password: 'password123'
+      password: 'password123',
     });
     let capturedOtp = '';
     const emailSender = vi.fn(async (params) => {
@@ -174,13 +292,14 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
     await authService.requestPasswordReset('lockout.sv@gmail.com', t0, emailSender);
     const wrongOtp = capturedOtp === '000000' ? '999999' : '000000';
 
-    // 2. Act & 3. Assert
+    // 2. Act & 3. Assert: 4 lần sai đầu trả về 400
     for (let i = 0; i < 4; i++) {
       expect(() =>
         authService.resetPasswordWithOtp('lockout.sv@gmail.com', wrongOtp, 'newPass123', t0)
       ).toThrow(/còn \d+ lần thử/);
     }
 
+    // Lần thứ 5 bị khóa với statusCode 429
     try {
       authService.resetPasswordWithOtp('lockout.sv@gmail.com', wrongOtp, 'newPass123', t0);
       expect.unreachable('Phải báo lỗi 429 ở lần sai thứ 5');
@@ -188,8 +307,104 @@ describe('AuthUserService - Thành viên 1 (Scrum Master)', () => {
       expect(err.statusCode).toBe(429);
     }
 
+    // Ngay cả khi nhập đúng OTP sau khi đã bị khóa cũng không dùng được nữa
     expect(() =>
       authService.resetPasswordWithOtp('lockout.sv@gmail.com', capturedOtp, 'newPass123', t0)
     ).toThrow(/Không có mã OTP hợp lệ/i);
+  });
+
+  it('exportStudentCompletedActivitiesCsv(): xuất bảng tổng hợp CSV có UTF-8 BOM và lọc đúng theo học kỳ', () => {
+    // 1. Arrange
+    const sv = authService.registerStudent({
+      email: 'export.sv@gmail.com',
+      studentCode: '21T1020999',
+      fullName: 'Nguyễn Thị Xuất File',
+      dob: '2004-11-11',
+      phone: '0912345678',
+      password: 'password123'
+    }).user;
+
+    const adminService = new AdminReportService(db);
+    const mgr = authService.registerManager({
+      email: 'export.mgr@gmail.com',
+      fullName: 'Quản lý Export',
+      dob: '1990-01-01',
+      phone: '0905123456',
+      address: 'Đà Nẵng',
+      password: 'password123'
+    }).user;
+    adminService.reviewManagerAccount(mgr.id, 'APPROVE');
+
+    const actService = new ActivityService(db);
+    const rpService = new RegistrationProofService(db);
+
+    const start1 = new Date('2026-10-15T07:00:00.000Z');
+    const end1 = new Date('2026-10-15T11:00:00.000Z');
+    const act1 = actService.createActivity(mgr.id, {
+      title: 'Ngày Chủ Nhật Xanh HK1',
+      description: 'Dọn dẹp khuôn viên',
+      coverImage: '/uploads/cover-green-sunday.svg',
+      location: 'Sân trường A',
+      startTime: start1.toISOString(),
+      endTime: end1.toISOString(),
+      maxParticipants: 30,
+      trainingPoints: 5
+    });
+    adminService.reviewActivityProposal(act1.id, 'APPROVE');
+
+    const start2 = new Date('2027-03-15T07:00:00.000Z');
+    const end2 = new Date('2027-03-15T11:00:00.000Z');
+    const act2 = actService.createActivity(mgr.id, {
+      title: 'Hiến máu Nhân đạo HK2',
+      description: 'Hỗ trợ y tế',
+      coverImage: '/uploads/cover-blood-donation.svg',
+      location: 'Hội trường B',
+      startTime: start2.toISOString(),
+      endTime: end2.toISOString(),
+      maxParticipants: 30,
+      trainingPoints: 8
+    });
+    adminService.reviewActivityProposal(act2.id, 'APPROVE');
+
+    const r1 = rpService.registerActivity(sv.id, act1.id, 'Tham gia HK1', new Date(start1.getTime() - 48 * 3600 * 1000));
+    rpService.reviewRegistration(mgr.id, r1.registration.id, 'APPROVE');
+    rpService.manualCheckIn(mgr.id, r1.registration.id, start1);
+    const p1 = rpService.submitProof(
+      sv.id,
+      r1.registration.id,
+      '/uploads/proof-sample-1.svg',
+      'Minh chứng HK1',
+      new Date(end1.getTime() + 2 * 3600 * 1000)
+    ) as { id: number };
+    rpService.reviewProofSubmission(mgr.id, p1.id, 'CONFIRM');
+
+    const r2 = rpService.registerActivity(sv.id, act2.id, 'Tham gia HK2', new Date(start2.getTime() - 48 * 3600 * 1000));
+    rpService.reviewRegistration(mgr.id, r2.registration.id, 'APPROVE');
+    rpService.manualCheckIn(mgr.id, r2.registration.id, start2);
+    const p2 = rpService.submitProof(
+      sv.id,
+      r2.registration.id,
+      '/uploads/proof-sample-2.svg',
+      'Minh chứng HK2',
+      new Date(end2.getTime() + 2 * 3600 * 1000)
+    ) as { id: number };
+    rpService.reviewProofSubmission(mgr.id, p2.id, 'CONFIRM');
+
+    // 2. Act
+    const allCsv = authService.exportStudentCompletedActivitiesCsv(sv.id, 'ALL');
+    const hk1Csv = authService.exportStudentCompletedActivitiesCsv(sv.id, 'HK1 2026-2027');
+
+    // 3. Assert
+    expect(allCsv.startsWith('\uFEFF')).toBe(true);
+    expect(allCsv).toContain('Nguyễn Thị Xuất File');
+    expect(allCsv).toContain('21T1020999');
+    expect(allCsv).toContain('Ngày Chủ Nhật Xanh HK1');
+    expect(allCsv).toContain('Hiến máu Nhân đạo HK2');
+    expect(allCsv).toContain('Tổng điểm rèn luyện,13');
+
+    expect(hk1Csv).toContain('HK1 2026-2027');
+    expect(hk1Csv).toContain('Ngày Chủ Nhật Xanh HK1');
+    expect(hk1Csv).toContain('Tổng điểm rèn luyện,5');
+    expect(hk1Csv).not.toContain('Hiến máu Nhân đạo HK2');
   });
 });
